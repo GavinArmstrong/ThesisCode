@@ -4,27 +4,45 @@ import math
 import matplotlib
 matplotlib.style.use('ggplot')
 import matplotlib.pyplot as plt
-
+from min_box import minimum_bounding_rectangle
+from scipy.spatial import ConvexHull
 
 df = pd.read_csv('160465_20160227_SIT_3m_PORT.csv').dropna()
 
 df.MAG3_NORTH -= 6000000
 df.MAG3_EAST -= 200000
 
-df.plot(kind='scatter', x='MAG3_EAST', y='MAG3_NORTH')
-
 # Doing calculations as vectorised operations
 
 # Just an example, these formulae are prob wrong.
-positions1 = df[['MAG3_NORTH', 'MAG3_EAST']].values
+MAG3pos = df[['MAG3_NORTH', 'MAG3_EAST']].values
 
 # we want to get the gradient per timestep then add them up
-gradients = np.gradient(positions1, axis=0)
-        
-theta = np.arctan(-1/(gradients[:,0]/gradients[:,1]))
+deltas = np.gradient(MAG3pos, axis=0)
+
+deltaN = np.diff(MAG3pos[:,0])
+deltaE = np.diff(MAG3pos[:,1])
+
+#THIS FUNCTIONS DOES SOMETHING A LITTLE DIFFERENT
+gradients = (deltas[:,0]/deltas[:,1])
+#IS THERE A BETTER WAY TO CONDITIONALLY CHANGE VALUE IN AN ARRAY
+heading = (np.arctan2(deltas[:,0],deltas[:,1]) * 180/np.pi)
+heading = np.where(heading<0,(np.arctan2(deltas[:,0],deltas[:,1]) * 180/np.pi) + 360,(np.arctan2(deltas[:,0],deltas[:,1]) * 180/np.pi) )
+#heading = (np.arctan2(deltas[:,0],deltas[:,1]) * 180/np.pi)
+#heading = np.where(heading<0,(np.arctan2(deltas[:,0],deltas[:,1]) * 180/np.pi) + 360,(np.arctan2(deltas[:,0],deltas[:,1]) * 180/np.pi) )
+
+#CALCULATING POSITION OF MAGNETOMETERS
+MAG2E =  MAG3pos[:,1] + 1.25 * np.sin(np.radians(heading+90))
+MAG2N = MAG3pos[:,0] + 1.25 * np.sin(np.radians(heading+90))
+MAG1E = MAG3pos[:,1] + 2.5 * np.sin(np.radians(heading+90))
+MAG1N = MAG3pos[:,0] + 2.5 * np.sin(np.radians(heading+90))
+MAG5E = MAG3pos[:,1] + 2.5 * np.sin(np.radians(heading-90))
+MAG5N = MAG3pos[:,0] + 2.5 * np.sin(np.radians(heading-90))
+MAG4E = MAG3pos[:,1] + 1.25 * np.sin(np.radians(heading-90))
+MAG4N = MAG3pos[:,0] + 1.25 * np.sin(np.radians(heading-90))
 
 # get distance on each timestep and we add them all
-distances = (gradients[:,0]**2 + gradients[:, 1]**2)**0.5
+distances = (deltas[:,0]**2 + deltas[:, 1]**2)**0.5
 
 transverse = (df.MAG3 - df.MAG1) / 2.5
 MidMag = ((df.MAG3 + df.MAG1) / 2.0)
@@ -35,12 +53,61 @@ df['longitudinal'] = longitudinal
 df['transverse'] = transverse
 df['vertical'] = vertical
 df['mid1-3'] = MidMag
+
+AS = np.sqrt(df.longitudinal**2 + df.transverse**2 + df.vertical**2)
+
+df['AnalyticalSignal'] = AS
+df['MAG1_NORTH'] = MAG1N
+df['MAG1_EAST'] = MAG1E
+df['MAG2_NORTH'] = MAG2N
+df['MAG2_EAST'] = MAG2E
+df['MAG4_NORTH'] = MAG4N
+df['MAG4_EAST'] = MAG4E
+df['MAG5_NORTH'] = MAG5N
+df['MAG5_EAST'] = MAG5E
+
 #
 #Delete last value of each group as the computation is incorrect due to being the transition of two lines
-df = df[df.groupby('LINE').cumcount(ascending=False) > 0]
+#THINK I NEED TO DELETE THE FIRST ELEMENT AS WELL (Zooming in on the plots, I noticed that values at the end and beginning of the lines are incorrect)
+#Deleting first and last 10 points gets rid of most wobbly starts to the survey line
+df = df[df.groupby('LINE').cumcount(ascending=False) > 20]
+df = df[df.groupby('LINE').cumcount(ascending=True) > 20]
+
+#PLOTTING
+#ax = df.plot(kind='scatter', x='MAG3_EAST', y='MAG3_NORTH', color='DarkBlue', label='MAG3')
+#df.plot(kind='scatter', x='MAG2_EAST', y='MAG2_NORTH',color='DarkGreen', label='MAG2', ax=ax)
+#df.plot(kind='scatter', x='MAG4_EAST', y='MAG4_NORTH',color='DarkRed', label='MAG4', ax=ax)
+#df.plot(kind='scatter', x='MAG5_EAST', y='MAG5_NORTH',color='DarkOrange', label='MAG5', ax=ax)
+#df.plot(kind='scatter', x='MAG1_EAST', y='MAG1_NORTH',color='DarkCyan', label='MAG1', ax=ax)
 
 #HAVE TO GROUP BY LINE BEFORE COMPUTATIONS OTHERWISE WILL GET INCORRECT VALUES AT THE TRANSITION BETWEEN TWO LINES
-#for (line, group) in df.groupby('LINE'):
+#Northing = np.array([])
+for (line, group) in df.groupby('LINE'):
+    MAG1p = group[['MAG1_NORTH', 'MAG1_EAST']].values.tolist()
+    MAG2p = group[['MAG2_NORTH', 'MAG2_EAST']].values.tolist()
+    MAG3p = group[['MAG3_NORTH', 'MAG3_EAST']].values.tolist()
+    MAG4p = group[['MAG4_NORTH', 'MAG4_EAST']].values.tolist()
+    MAG5p = group[['MAG5_NORTH', 'MAG5_EAST']].values.tolist()
+    MAGp = np.asarray(MAG1p + MAG2p + MAG3p+ MAG4p + MAG5p)
+    corners = minimum_bounding_rectangle(MAGp)
+    Hull = ConvexHull(MAGp, incremental=True)
+    plt.figure()
+    plt.plot(MAGp[:,0], MAGp[:,1], 'ko',  markersize=2)
+    for simplex in Hull.simplices:
+        plt.plot(MAGp[simplex, 0], MAGp[simplex, 1], 'k-')
+    plt.plot(MAGp[Hull.vertices,0], MAGp[Hull.vertices,1], 'r--', lw=2)
+    plt.plot(MAGp[Hull.vertices[0],0], MAGp[Hull.vertices[0],1], 'ro')
+    plt.show()
+    
+#    ax = group.plot(kind='scatter', x='MAG3_EAST', y='MAG3_NORTH', color='DarkBlue', label='MAG3')
+#    group.plot(kind='scatter', x='MAG2_EAST', y='MAG2_NORTH',color='DarkGreen', label='MAG2', ax=ax)
+#    group.plot(kind='scatter', x='MAG4_EAST', y='MAG4_NORTH',color='DarkRed', label='MAG4', ax=ax)
+#    group.plot(kind='scatter', x='MAG5_EAST', y='MAG5_NORTH',color='DarkOrange', label='MAG5', ax=ax)
+#    group.plot(kind='scatter', x='MAG1_EAST', y='MAG1_NORTH',color='DarkCyan', label='MAG1', ax=ax)
+#    plt.subplot(211)
+#    plt.plot(group.AnalyticalSignal, label="AS")
+#    plt.legend()
+#    plt.show()
     
 #    #Get position of MAG3 along line
 #    positions = group[['MAG3_NORTH', 'MAG3_EAST']].values
