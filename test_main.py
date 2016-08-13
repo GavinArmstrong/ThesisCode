@@ -6,6 +6,7 @@ matplotlib.style.use('ggplot')
 import matplotlib.pyplot as plt
 from min_box import minimum_bounding_rectangle
 from scipy.spatial import ConvexHull
+from scipy.interpolate import griddata
 
 df = pd.read_csv('160465_20160227_SIT_3m_PORT.csv').dropna()
 
@@ -84,20 +85,35 @@ df = df[df.groupby('LINE').cumcount(ascending=True) > 20]
 #Northing = np.array([])
 for (line, group) in df.groupby('LINE'):
     MAG1p = group[['MAG1_NORTH', 'MAG1_EAST']].values.tolist()
+    MAG1v = group['MAG1'].values.tolist()
     MAG2p = group[['MAG2_NORTH', 'MAG2_EAST']].values.tolist()
+    MAG2v = group['MAG2'].values.tolist()
     MAG3p = group[['MAG3_NORTH', 'MAG3_EAST']].values.tolist()
+    MAG3v = group['MAG3'].values.tolist()
     MAG4p = group[['MAG4_NORTH', 'MAG4_EAST']].values.tolist()
+    MAG4v = group['MAG4'].values.tolist()
     MAG5p = group[['MAG5_NORTH', 'MAG5_EAST']].values.tolist()
+    MAG5v = group['MAG5'].values.tolist()
     MAGp = np.asarray(MAG1p + MAG2p + MAG3p+ MAG4p + MAG5p)
+    MAGv = np.asarray(MAG1v + MAG2v + MAG3v + MAG4v + MAG5v)
+    #different method
     corners = minimum_bounding_rectangle(MAGp)
-    Hull = ConvexHull(MAGp, incremental=True)
+#    Hull = ConvexHull(MAGp, incremental=True)
     plt.figure()
     plt.plot(MAGp[:,0], MAGp[:,1], 'ko',  markersize=2)
-    for simplex in Hull.simplices:
-        plt.plot(MAGp[simplex, 0], MAGp[simplex, 1], 'k-')
-    plt.plot(MAGp[Hull.vertices,0], MAGp[Hull.vertices,1], 'r--', lw=2)
-    plt.plot(MAGp[Hull.vertices[0],0], MAGp[Hull.vertices[0],1], 'ro')
-    plt.show()
+    plt.plot(corners[:,0],corners[:,1], 'bo-')
+    
+    #THIS GRIDS IN THE AREA BOUND BY THE CORNERS, BUT NOT THE ACTUAL RECTANGLE
+    x = np.arange(min(corners[:,1]),max(corners[:,1]),1)
+    y = np.arange(min(corners[:,0]),max(corners[:,0]),1)
+    X,Y = np.meshgrid(x, y)
+    gridded = griddata(MAGp, MAGv, (X, Y), method = 'cubic')
+#    for simplex in Hull.simplices:
+#        plt.plot(MAGp[simplex, 0], MAGp[simplex, 1], 'k-')
+#    plt.plot(MAGp[Hull.vertices,0], MAGp[Hull.vertices,1], 'r--', lw=2)
+#    for vertex in Hull.vertices:
+#        plt.plot(MAGp[vertex,0], MAGp[vertex,1], 'ro')
+#    plt.show()
     
 #    ax = group.plot(kind='scatter', x='MAG3_EAST', y='MAG3_NORTH', color='DarkBlue', label='MAG3')
 #    group.plot(kind='scatter', x='MAG2_EAST', y='MAG2_NORTH',color='DarkGreen', label='MAG2', ax=ax)
